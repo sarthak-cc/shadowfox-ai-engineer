@@ -12,7 +12,7 @@
     summarize: {
       eyebrow: "01 — Summarise",
       title: "Turn messy notes into <em>revision gold</em>",
-      lede: "Paste lecture notes, a textbook passage or your own scribbles. You'll get a TL;DR, key points, definitions and a revision tip.",
+      lede: "Paste lecture notes, a textbook passage or your own scribbles. You'll get the key points, definitions and a revision tip.",
       endpoint: "/api/summarize",
       button: "Summarise",
       loading: ["Reading your notes…", "Pulling out the key ideas…", "Defining key terms…", "Polishing the summary…"],
@@ -330,7 +330,6 @@ The monarchy was abolished in 1792 and Louis XVI was executed in 1793. The radic
   function renderSummary(d) {
     return `
       <h2 class="r-title">${esc(d.title)}</h2>
-      <div class="callout"><b class="k">TL;DR</b>${esc(d.tldr)}</div>
       <h3>Key points</h3>
       <ol class="points">${d.key_points.map((p) => `<li><span>${esc(p)}</span></li>`).join("")}</ol>
       <h3>Key terms</h3>
@@ -426,7 +425,7 @@ The monarchy was abolished in 1792 and Louis XVI was executed in 1793. The radic
   function toMarkdown({ tool, data: d }) {
     switch (tool) {
       case "summarize":
-        return `# ${d.title}\n\n> ${d.tldr}\n\n## Key points\n${d.key_points.map((p) => `- ${p}`).join("\n")}\n\n## Key terms\n${d.key_terms.map((t) => `- **${t.term}** — ${t.definition}`).join("\n")}\n\n## Revision tip\n${d.revision_tip}\n`;
+        return `# ${d.title}\n\n## Key points\n${d.key_points.map((p) => `- ${p}`).join("\n")}\n\n## Key terms\n${d.key_terms.map((t) => `- **${t.term}** — ${t.definition}`).join("\n")}\n\n## Revision tip\n${d.revision_tip}\n`;
       case "quiz":
         return `# ${d.title}\n\n` + d.questions.map((q, i) => `### ${i + 1}. ${q.question}\n${q.options.map((o, j) => `${"ABCD"[j]}) ${o}`).join("\n")}\n\n**Answer:** ${"ABCD"[q.correct_index]} — ${q.explanation}\n`).join("\n");
       case "improve":

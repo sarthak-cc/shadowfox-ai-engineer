@@ -83,7 +83,6 @@ class KeyTerm(BaseModel):
 
 class SummaryResult(BaseModel):
     title: str = Field(description="Short title describing the notes")
-    tldr: str = Field(description="One or two sentence overview")
     key_points: list[str] = Field(description="Main ideas as concise bullet points")
     key_terms: list[KeyTerm] = Field(description="Important terms with one-line definitions")
     revision_tip: str = Field(description="One practical tip for revising this material")

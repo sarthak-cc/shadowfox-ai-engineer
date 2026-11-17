@@ -51,7 +51,7 @@ def test_improve_requires_both_fields():
 # ---------- happy paths ----------
 
 def test_summarize_ok(fake_llm):
-    fake_llm(SummaryResult(title="T", tldr="x", key_points=["a"], key_terms=[KeyTerm(term="t", definition="d")],
+    fake_llm(SummaryResult(title="T",key_points=["a"], key_terms=[KeyTerm(term="t", definition="d")],
                            revision_tip="tip"))
     r = client.post("/api/summarize", json={"notes": NOTES})
     assert r.status_code == 200

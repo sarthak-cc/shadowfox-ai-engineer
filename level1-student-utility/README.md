@@ -5,7 +5,7 @@ each tool has its own structured prompt, typed output schema and purpose-built r
 
 | Tool | What the student gives | What they get back |
 |---|---|---|
-| **Summarise notes** | Lecture notes / textbook text + length | Title, TL;DR, numbered key points, key-term cards, revision tip |
+| **Summarise notes** | Lecture notes / textbook text + length | Title, numbered key points, key-term cards, revision tip |
 | **Quiz me** | Notes + number of questions + difficulty | Interactive MCQ quiz with instant marking, explanations and a final score |
 | **Improve answer** | Exam question + their answer | Score before/after, strengths, gaps, rewritten model answer, list of changes |
 | **Explain a concept** | Topic + optional subject + level | One-liner, explanation, analogy, worked example, common mistakes, self-check questions |
