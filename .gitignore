@@ -1,0 +1,23 @@
+# Secrets
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# Data / indexes generated at runtime
+data/
+storage/
+*.faiss
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
