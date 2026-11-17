@@ -33,6 +33,9 @@ uvicorn app.main:app --reload --port 8001
 
 Open http://localhost:8001. Interactive API docs are at http://localhost:8001/docs.
 
+> The UI is plain HTML/CSS/JS, so it can also be opened from a static server such as VS Code Live Server.
+> It finds the backend on port 8001 by itself, but the backend still has to be running.
+
 Run the tests (the model is mocked, so no key is needed):
 
 ```bash

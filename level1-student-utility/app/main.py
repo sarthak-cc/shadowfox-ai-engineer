@@ -4,7 +4,8 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import prompts
@@ -21,6 +22,11 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 app = FastAPI(title="StudyPilot", version="1.0.0",
               description="AI-powered study utilities: summaries, quizzes, answer improvement, explanations.")
+
+# Allows the UI to call the API when it is opened from a different local origin
+# (e.g. a static dev server). No cookies/credentials are used, so this is safe.
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "POST"],
+                   allow_headers=["Content-Type"])
 
 
 # ---------- Error handling: every error becomes {"error": "..."} ----------
@@ -82,10 +88,5 @@ def explain(req: ExplainRequest) -> ExplainResult:
 
 
 # ---------- Frontend ----------
-
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
-
-@app.get("/", include_in_schema=False)
-def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+# Mounted last so /api/* routes take priority. html=True serves index.html at "/".
+app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="ui")

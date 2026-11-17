@@ -287,7 +287,7 @@ The monarchy was abolished in 1792 and Louis XVI was executed in 1793. The radic
     showLoading();
 
     try {
-      const res = await fetch(TOOLS[tool].endpoint, {
+      const res = await fetch((await findApi()) + TOOLS[tool].endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(collectPayload()),
@@ -305,7 +305,7 @@ The monarchy was abolished in 1792 and Louis XVI was executed in 1793. The radic
       if (current === tool) render(tool, data);
     } catch (ex) {
       if (ex.name === "AbortError") return;
-      if (current === tool) showError("Couldn't reach the StudyPilot server. Is it still running?");
+      if (current === tool) showError("Couldn't reach the StudyPilot server. Start it with: uvicorn app.main:app --port 8001");
     } finally {
       clearInterval(loadingTimer);
       $("#output-panel").setAttribute("aria-busy", "false");
@@ -453,10 +453,28 @@ The monarchy was abolished in 1792 and Louis XVI was executed in 1793. The radic
   // ---------------------------------------------------------------
   // Health check
   // ---------------------------------------------------------------
+  // The UI is normally served by FastAPI (same origin). If it is opened another way
+  // (e.g. VS Code Live Server or a file:// URL), fall back to the default backend address.
+  const API_CANDIDATES = ["", "http://127.0.0.1:8001", "http://localhost:8001"];
+  let apiBase = null;
+
+  async function findApi() {
+    if (apiBase !== null) return apiBase;
+    for (const base of API_CANDIDATES) {
+      if (base === "" && location.protocol === "file:") continue;
+      try {
+        const r = await fetch(base + "/api/health", { signal: AbortSignal.timeout(2500) });
+        const h = await r.json();
+        if (h?.status === "ok") { apiBase = base; return base; }
+      } catch (_) { /* try next */ }
+    }
+    throw new Error("backend not found");
+  }
+
   async function checkHealth() {
     const box = $("#status"), text = $("#status-text");
     try {
-      const r = await fetch("/api/health");
+      const r = await fetch((await findApi()) + "/api/health");
       const h = await r.json();
       if (!h.api_key_configured) { box.className = "status err"; text.textContent = "API key missing"; return; }
       box.className = "status ok"; text.textContent = `Online · ${h.model}`;
