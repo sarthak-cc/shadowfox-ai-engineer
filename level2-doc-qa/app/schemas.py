@@ -14,6 +14,21 @@ class DocumentInfo(BaseModel):
     uploaded_at: str
 
 
+class IngestJob(BaseModel):
+    """Progress of a background upload."""
+    id: str
+    name: str
+    status: Literal["processing", "done", "error"]
+    stage: Literal["reading", "embedding", "waiting", "saving", "done", "error"]
+    pages: int = 0
+    done: int = Field(0, description="Chunks embedded so far")
+    total: int = Field(0, description="Chunks to embed")
+    document: DocumentInfo | None = None
+    error: str | None = None
+    elapsed_s: float | None = None
+    wait_s: float | None = Field(None, description="Seconds until embedding resumes (rate limit)")
+
+
 class AskRequest(BaseModel):
     question: str = Field(..., max_length=1_000)
     document_ids: list[str] | None = Field(

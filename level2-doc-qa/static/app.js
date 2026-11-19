@@ -199,13 +199,36 @@
       if (file.size > MAX_MB * 1024 * 1024) { failUpload(li, `File is larger than ${MAX_MB} MB.`); continue; }
       const form = new FormData();
       form.append("file", file);
+      setUploadState(li, "Uploading…", null);
       try {
-        const doc = await api("/api/documents", { method: "POST", body: form });
+        let job = await api("/api/documents", { method: "POST", body: form });
+        // Indexing runs in the background; poll its progress.
+        while (job.status === "processing") {
+          showJob(li, job);
+          await new Promise((r) => setTimeout(r, 600));
+          job = await api(`/api/jobs/${job.id}`);
+        }
+        if (job.status === "error") { failUpload(li, job.error); continue; }
         li.remove();
-        toast(`Indexed ${doc.name} · ${doc.chunks} chunks`);
+        toast(`Indexed ${job.document.name} · ${job.document.chunks} passages in ${job.elapsed_s}s`);
         await refreshDocs();
       } catch (err) { failUpload(li, err.message); }
     }
+  }
+
+  function setUploadState(li, label, pct) {
+    $(".u-state", li).textContent = label;
+    const bar = $(".u-bar i", li);
+    bar.classList.toggle("det", pct !== null);
+    if (pct !== null) bar.style.width = Math.max(3, pct) + "%";
+  }
+
+  function showJob(li, job) {
+    if (job.stage === "reading") return setUploadState(li, "Reading file…", null);
+    if (job.stage === "saving") return setUploadState(li, "Saving…", 100);
+    if (job.stage === "waiting") return setUploadState(li, `Free-tier limit · resuming in ${job.wait_s}s`, job.total ? (job.done / job.total) * 100 : 0);
+    const pct = job.total ? (job.done / job.total) * 100 : 0;
+    setUploadState(li, `Embedding ${job.done} / ${job.total}`, pct);
   }
 
   const dz = $("#dropzone");

@@ -1,5 +1,6 @@
 """Tests for ingestion, retrieval and the API. Gemini calls are mocked."""
 import hashlib
+import time
 from pathlib import Path
 
 import numpy as np
@@ -13,7 +14,7 @@ SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 DIM = 768
 
 
-def fake_embed(texts, task):
+def fake_embed(texts, task, on_progress=None, on_wait=None):
     """Deterministic bag-of-words embedding: similar words -> similar vectors."""
     out = np.zeros((len(texts), DIM), dtype=np.float32)
     for i, t in enumerate(texts):
@@ -37,7 +38,27 @@ def client(tmp_path, monkeypatch):
 
 
 def upload(client, name, data: bytes):
-    return client.post("/api/documents", files={"file": (name, data)})
+    """Upload, then poll the background job until it finishes (like the UI does)."""
+    r = client.post("/api/documents", files={"file": (name, data)})
+    if r.status_code != 202:
+        return r
+    job = r.json()
+    for _ in range(200):
+        if job["status"] != "processing":
+            break
+        time.sleep(0.02)
+        job = client.get(f"/api/jobs/{job['id']}").json()
+    return JobResult(job)
+
+
+class JobResult:
+    """Make a finished job look like a response: 201 + document, or 422 + error."""
+    def __init__(self, job):
+        self.job = job
+        self.status_code = 201 if job["status"] == "done" else 422
+
+    def json(self):
+        return self.job["document"] if self.status_code == 201 else {"error": self.job["error"]}
 
 
 # ---------------- ingestion ----------------
@@ -138,3 +159,58 @@ def test_document_scope_filter(client, monkeypatch):
                                          "document_ids": [a["id"]]}).json()
     assert {s["document_id"] for s in body["sources"]} <= {a["id"]}
     assert b["id"] not in {s["document_id"] for s in body["sources"]}
+
+
+def test_job_reports_progress(client):
+    r = client.post("/api/documents", files={"file": ("os.pdf", (SAMPLES / "os-lecture-cpu-scheduling.pdf").read_bytes())})
+    assert r.status_code == 202
+    job = r.json()
+    for _ in range(200):
+        job = client.get(f"/api/jobs/{job['id']}").json()
+        if job["status"] != "processing":
+            break
+        time.sleep(0.02)
+    assert job["status"] == "done" and job["total"] == job["document"]["chunks"] and job["pages"] == 3
+
+
+def test_embed_batches_in_parallel_and_keeps_order(monkeypatch):
+    from app import llm
+
+    def fake_batch(batch, config, on_wait=None):
+        return [[float(t.split()[-1])] + [0.0] * (DIM - 1) for t in batch]
+
+    monkeypatch.setattr(llm, "_embed_batch", fake_batch)
+    seen = []
+    out = llm.embed([f"text {i + 1}" for i in range(100)], "RETRIEVAL_DOCUMENT", on_progress=seen.append)
+    assert out.shape == (100, DIM)
+    assert seen[-1] == 100 and len(seen) == 4      # 100 texts -> 4 batches of up to 32
+    assert np.allclose(out[:, 0], 1.0)            # normalised, order preserved
+
+
+def test_rate_limiter_waits_when_window_is_full(monkeypatch):
+    from app import llm
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(llm.time, "monotonic", lambda: clock["t"])
+    slept = []
+
+    def fake_sleep(s):
+        slept.append(s)
+        clock["t"] += s
+
+    monkeypatch.setattr(llm.time, "sleep", fake_sleep)
+    rl = llm.RateLimiter(per_minute=90)
+    rl.acquire(64)
+    rl.acquire(26)            # exactly at the limit, no wait
+    assert slept == []
+    waits = []
+    rl.acquire(32, on_wait=waits.append)   # must wait for the first 64 to expire
+    assert waits and sum(slept) >= 59
+
+
+def test_retry_delay_is_read_from_api_error():
+    from google.genai import errors
+    from app import llm
+    err = errors.APIError(429, {"error": {"code": 429, "message": "quota", "status": "RESOURCE_EXHAUSTED",
+                                          "details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo",
+                                                       "retryDelay": "55s"}]}})
+    assert llm._retry_delay(err) == 55.0

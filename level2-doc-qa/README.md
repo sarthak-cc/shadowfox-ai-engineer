@@ -28,7 +28,7 @@ samples are an operating-systems lecture PDF and a course handbook in Markdown. 
 are at http://localhost:8002/docs.
 
 ```bash
-pytest -q        # 12 tests; Gemini is mocked, so no key or network is needed
+pytest -q        # 16 tests; Gemini is mocked, so no key or network is needed
 ```
 
 ---
@@ -41,7 +41,7 @@ pytest -q        # 12 tests; Gemini is mocked, so no key or network is needed
  file ─► validate type/size/duplicate              question ─► validate
       ─► extract text page by page                         ─► embed (RETRIEVAL_QUERY)
       ─► clean (unwrap lines, strip Markdown)              ─► cosine similarity vs every chunk
-      ─► split into ~900-char chunks                       ─► keep top-k, optionally only
+      ─► split into ~1,200-char chunks                     ─► keep top-k, optionally only
       ─► embed chunks (RETRIEVAL_DOCUMENT)                    from the selected documents
       ─► add to vector store (saved to data/)              ─► drop chunks below MIN_SCORE
                                                            ─► nothing left? answer "not found"
@@ -65,7 +65,8 @@ pytest -q        # 12 tests; Gemini is mocked, so no key or network is needed
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/api/documents` | Upload and index one file (multipart `file`) |
+| `POST` | `/api/documents` | Upload one file (multipart `file`); returns a background job (`202`) |
+| `GET` | `/api/jobs/{id}` | Indexing progress: stage, chunks embedded / total, rate-limit wait, result or error |
 | `GET` | `/api/documents` | List indexed documents |
 | `DELETE` | `/api/documents/{id}` · `/api/documents` | Remove one or all documents |
 | `POST` | `/api/samples` | Index the bundled sample documents |
@@ -83,18 +84,35 @@ pytest -q        # 12 tests; Gemini is mocked, so no key or network is needed
 - **Cleaning**: lines wrapped mid-sentence (common in PDFs) are joined back up, words hyphenated across
   lines are repaired, and extra whitespace is removed.
 
-### Chunk size: ~900 characters with ~150 characters of overlap
+### Chunk size: ~1,200 characters with ~200 characters of overlap
 - Text is split into **sentences**, which are packed into chunks of at most `CHUNK_SIZE` characters. A
   chunk never ends mid-sentence.
-- **~900 characters (about 200 tokens, 1–2 paragraphs)** is small enough that a chunk is about one idea,
-  which keeps similarity scores sharp and citations precise. It is also large enough to keep the
-  sentence that gives a fact its context.
-- **Overlap**: the last ~150 characters (whole sentences) of each chunk are repeated at the start of the
+- **~1,200 characters (about 270 tokens, 1–3 paragraphs)** is roughly one answer-sized idea: a definition
+  with its explanation, or one exam answer. It is small enough that similarity scores stay sharp and
+  citations precise, and large enough to keep the context around a fact.
+- **Why not smaller?** I started at 900 characters. On the Gemini free tier, **every chunk counts as one
+  embedding request, with a limit of 100 per minute**, so a 27-page PDF (72k characters) made 104 chunks
+  and could not be indexed within one minute. At 1,200 characters the same PDF makes 85 chunks and indexes
+  in about 15 seconds. Retrieval got *better*, not worse: the best matches for a test question went from
+  ~0.65 to ~0.78 similarity, because each chunk carried a complete answer.
+- **Overlap**: the last ~200 characters (whole sentences) of each chunk are repeated at the start of the
   next, so a fact that falls on a boundary is still complete in at least one chunk.
 - Chunks don't cross page boundaries (each citation points to one page), and a tiny leftover at the end
   of a page is merged into the previous chunk.
-- With `top_k = 5`, the model receives about 4,500 characters of context: enough to answer, and cheap and
+- With `top_k = 5`, the model receives about 6,000 characters of context: enough to answer, and cheap and
   fast to send.
+
+### Indexing speed and the free-tier quota
+- Chunks are embedded in batches of 32, with up to 4 batches in flight at once, so one slow response
+  doesn't hold up the whole file.
+- A **rate limiter** (a sliding one-minute window, 90 texts/minute by default) waits *before* sending
+  rather than triggering 429 errors. If the API still returns a 429, the app waits exactly as long as the
+  error's `retryDelay` says and carries on.
+- Uploads run as **background jobs**. The UI polls `/api/jobs/{id}` and shows real progress
+  ("Embedding 64 / 85") or the rate-limit wait ("resuming in 40s"), instead of a spinner with no
+  information.
+- The SDK's built-in retry layer is switched off, so a stalled request fails after one timeout and is
+  retried by the app's own logic instead of silently retrying for minutes.
 
 ### Embeddings and search
 - **Model**: `gemini-embedding-001`, reduced to **768 dimensions** (a quarter of the full size, with
@@ -111,7 +129,7 @@ pytest -q        # 12 tests; Gemini is mocked, so no key or network is needed
 ### Keeping answers grounded
 1. **Relevance threshold** (`MIN_SCORE = 0.55`): chunks scoring below it are discarded. If none remain,
    DocLens replies "not found" **without calling the LLM**, so the model never gets the chance to answer
-   from its own memory. In testing, off-topic questions scored ≤ 0.45 and real matches 0.60–0.70.
+   from its own memory. In testing, off-topic questions scored ≤ 0.50 and real matches 0.60–0.80.
 2. **Strict prompt**: the model may only use the numbered passages, must cite one after every factual
    sentence, must set `found=false` when the passages don't contain the answer (*even if it knows the
    answer*), must point out when sources disagree, and must ignore instructions inside documents.
@@ -135,7 +153,8 @@ documents don't cover it, instead of supplying the answer from general knowledge
 | Same file uploaded twice | `409`: "already indexed as …" (SHA-256 of the content) |
 | Empty or nonsense question, no documents, no documents selected | Caught in the UI and again by the API |
 | Gemini 503/429/timeout | Retry with backoff, then fall back to other models |
-| Embedding batch > 100 texts | Split into batches automatically (API limit) |
+| Free-tier embedding quota (100 texts/min) | Rate limiter paces requests; on 429 waits the time the API asks, shown on the upload card |
+| Slow or stalled embedding request | 25 s timeout, retried by the app; other batches continue in parallel |
 | Server unreachable | Error card with **Try again** |
 
 ## Configuration
@@ -145,6 +164,7 @@ documents don't cover it, instead of supplying the answer from general knowledge
 | `GEMINI_API_KEY` | — | Required |
 | `GEMINI_MODEL` / `GEMINI_FALLBACK_MODELS` | `gemini-3.5-flash-lite` / `gemini-3.1-flash-lite,gemini-3.5-flash` | Answer generation |
 | `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `gemini-embedding-001` / `768` | Embeddings |
-| `CHUNK_SIZE` / `CHUNK_OVERLAP` | `900` / `150` | Characters per chunk / overlap |
+| `CHUNK_SIZE` / `CHUNK_OVERLAP` | `1200` / `200` | Characters per chunk / overlap |
+| `EMBED_PER_MINUTE` | `90` | Embedding rate limit (free tier allows 100) |
 | `TOP_K` / `MIN_SCORE` | `5` / `0.55` | Passages retrieved / relevance threshold |
 | `REQUEST_TIMEOUT_S` | `25` | Per-request timeout before retrying or falling back |

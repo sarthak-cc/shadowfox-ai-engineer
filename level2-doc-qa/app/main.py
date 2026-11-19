@@ -1,6 +1,8 @@
 """DocLens - FastAPI backend: upload documents, ask questions, get grounded answers."""
 import hashlib
 import logging
+import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,7 +18,7 @@ from .config import get_settings
 from .ingest import IngestError, chunk_pages, detect_kind, extract_pages
 from .llm import LLMError, embed
 from .qa import answer_question
-from .schemas import AskRequest, AskResponse, DocumentInfo
+from .schemas import AskRequest, AskResponse, DocumentInfo, IngestJob
 from .store import ChunkRecord, VectorStore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -28,6 +30,9 @@ SAMPLES_DIR = Path(__file__).resolve().parent.parent / "samples"
 settings = get_settings()
 store = VectorStore(settings.embedding_dim)
 store.load()
+
+_jobs: dict[str, IngestJob] = {}   # background upload jobs, polled by the UI
+_pending: set[str] = set()         # sha256 of files currently being indexed
 
 app = FastAPI(title="DocLens", version="1.0.0",
               description="Upload PDF/TXT/Markdown files and ask questions answered from their content.")
@@ -74,12 +79,13 @@ def list_documents() -> list[DocumentInfo]:
     return sorted(store.documents.values(), key=lambda d: d.uploaded_at, reverse=True)
 
 
-@app.post("/api/documents", response_model=DocumentInfo, status_code=201)
+@app.post("/api/documents", response_model=IngestJob, status_code=202)
 async def upload_document(file: UploadFile = File(...)):
+    """Validate the file, then index it in the background. Poll /api/jobs/{id} for progress."""
     name = (file.filename or "").strip() or "untitled"
     kind = detect_kind(name)
 
-    if len(store.documents) >= settings.max_documents:
+    if len(store.documents) + len(_pending) >= settings.max_documents:
         return _error(409, f"You can index up to {settings.max_documents} documents. Remove one first.")
 
     max_bytes = int(settings.max_file_mb * 1024 * 1024)
@@ -91,18 +97,63 @@ async def upload_document(file: UploadFile = File(...)):
     if sha in store.hashes:
         existing = store.documents[store.hashes[sha]].name
         return _error(409, f"This file is already indexed as \"{existing}\".")
+    if sha in _pending:
+        return _error(409, "This file is already being indexed.")
 
-    # Parsing and embedding are blocking - run them off the event loop.
-    return await run_in_threadpool(_index_document, name, kind, data, sha)
+    job = IngestJob(id=uuid.uuid4().hex[:12], name=name, status="processing", stage="reading")
+    _jobs[job.id] = job
+    _pending.add(sha)
+    threading.Thread(target=_run_job, args=(job, kind, data, sha), daemon=True).start()
+    return job
 
 
-def _index_document(name: str, kind: str, data: bytes, sha: str) -> DocumentInfo:
+@app.get("/api/jobs/{job_id}", response_model=IngestJob)
+def get_job(job_id: str):
+    job = _jobs.get(job_id)
+    if not job:
+        return _error(404, "Upload job not found.")
+    return job
+
+
+def _run_job(job: IngestJob, kind: str, data: bytes, sha: str) -> None:
+    started = time.perf_counter()
+    try:
+        job.document = _index_document(job.name, kind, data, sha, job)
+        job.status, job.stage = "done", "done"
+    except (IngestError, LLMError) as e:
+        job.status, job.stage, job.error = "error", "error", str(getattr(e, "message", e))
+    except Exception:
+        log.exception("indexing failed for %s", job.name)
+        job.status, job.stage, job.error = "error", "error", "Something went wrong while indexing this file."
+    finally:
+        _pending.discard(sha)
+        job.elapsed_s = round(time.perf_counter() - started, 1)
+        # keep the registry small
+        if len(_jobs) > 200:
+            for old in list(_jobs)[:100]:
+                _jobs.pop(old, None)
+
+
+def _index_document(name: str, kind: str, data: bytes, sha: str, job: IngestJob | None = None) -> DocumentInfo:
     pages = extract_pages(data, kind)
     chunks = chunk_pages(pages, settings.chunk_size, settings.chunk_overlap)
     if not chunks:
         raise IngestError("No usable text was found in this file.")
 
-    vectors = embed([c.text for c in chunks], "RETRIEVAL_DOCUMENT")
+    if job:
+        job.stage, job.total, job.pages = "embedding", len(chunks), len(pages)
+
+    def progress(n: int) -> None:
+        if job:
+            job.done, job.stage, job.wait_s = n, "embedding", None
+
+    def waiting(seconds: float) -> None:
+        if job:
+            job.stage, job.wait_s = "waiting", round(seconds)
+
+    vectors = embed([c.text for c in chunks], "RETRIEVAL_DOCUMENT", on_progress=progress, on_wait=waiting)
+    if job:
+        job.stage = "saving"
 
     doc = DocumentInfo(
         id=uuid.uuid4().hex[:12], name=name, kind=kind, pages=len(pages), chunks=len(chunks),

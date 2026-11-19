@@ -1,6 +1,10 @@
 """Gemini client: embeddings + structured generation, with retries and friendly errors."""
 import logging
+import threading
 import time
+from collections import deque
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TypeVar
 
 import numpy as np
@@ -13,8 +17,67 @@ from .config import get_settings
 log = logging.getLogger("doclens.llm")
 T = TypeVar("T", bound=BaseModel)
 
-EMBED_BATCH = 100  # API limit per request
+EMBED_BATCH = 32      # texts per request (API limit is 100; smaller batches return faster)
+EMBED_WORKERS = 4     # batches in flight at once
+EMBED_ATTEMPTS = 4
 RETRYABLE = {429, 500, 502, 503, 504}
+
+
+class RateLimiter:
+    """Sliding one-minute window over the number of texts embedded.
+
+    On the Gemini free tier every text in a batch counts as one request, and the limit is
+    100 per minute. Waiting *before* sending keeps us under the limit instead of hitting
+    429 errors and retrying.
+    """
+
+    def __init__(self, per_minute: int) -> None:
+        self.per_minute = per_minute
+        self.events: deque[tuple[float, int]] = deque()
+        self.lock = threading.Lock()
+
+    def acquire(self, n: int, on_wait: Callable[[float], None] | None = None) -> None:
+        n = min(n, self.per_minute)
+        while True:
+            with self.lock:
+                now = time.monotonic()
+                while self.events and now - self.events[0][0] >= 60:
+                    self.events.popleft()
+                used = sum(k for _, k in self.events)
+                if used + n <= self.per_minute:
+                    self.events.append((now, n))
+                    return
+                # wait until enough of the oldest usage expires
+                freed, wait = 0, 0.0
+                for ts, k in self.events:
+                    freed += k
+                    if used - freed + n <= self.per_minute:
+                        wait = 60 - (now - ts) + 0.2
+                        break
+            if on_wait:
+                on_wait(wait)
+            time.sleep(min(wait, 5))
+
+
+_limiter: RateLimiter | None = None
+
+
+def _get_limiter() -> RateLimiter:
+    global _limiter
+    if _limiter is None:
+        _limiter = RateLimiter(get_settings().embed_per_minute)
+    return _limiter
+
+
+def _retry_delay(err: errors.APIError) -> float | None:
+    """Seconds the API asks us to wait (RetryInfo.retryDelay, e.g. "55s"), if given."""
+    try:
+        for d in (err.details or {}).get("error", {}).get("details", []):
+            if d.get("@type", "").endswith("RetryInfo"):
+                return float(str(d.get("retryDelay", "")).rstrip("s"))
+    except (AttributeError, TypeError, ValueError):
+        pass
+    return None
 
 
 class LLMError(Exception):
@@ -35,8 +98,10 @@ def get_client() -> genai.Client:
     if not s.gemini_api_key:
         raise LLMError("The server is missing GEMINI_API_KEY. Add it to the .env file and restart.", 500)
     if _client is None:
-        _client = genai.Client(api_key=s.gemini_api_key,
-                               http_options=types.HttpOptions(timeout=int(s.request_timeout_s * 1000)))
+        # The SDK's own retry layer is disabled (attempts=1): retries are handled here, so a
+        # slow request fails after one timeout instead of silently retrying for minutes.
+        _client = genai.Client(api_key=s.gemini_api_key, http_options=types.HttpOptions(
+            timeout=int(s.request_timeout_s * 1000), retry_options=types.HttpRetryOptions(attempts=1)))
     return _client
 
 
@@ -55,34 +120,70 @@ def _friendly(err: errors.APIError) -> LLMError:
 
 # ---------------- embeddings ----------------
 
-def embed(texts: list[str], task: str) -> np.ndarray:
+def _embed_batch(batch: list[str], config: types.EmbedContentConfig,
+                 on_wait: Callable[[float], None] | None = None) -> list[list[float]]:
+    s = get_settings()
+    client = get_client()
+    for attempt in range(EMBED_ATTEMPTS):
+        _get_limiter().acquire(len(batch), on_wait)
+        delay = 1.0 * (2 ** attempt)
+        try:
+            started = time.perf_counter()
+            result = client.models.embed_content(model=s.embedding_model, contents=batch, config=config)
+            log.info("embedded %d texts in %.1fs", len(batch), time.perf_counter() - started)
+            return [e.values for e in result.embeddings]
+        except errors.APIError as e:
+            log.warning("embedding error (attempt %d): %s", attempt + 1, str(e)[:120])
+            if (e.code or 0) not in RETRYABLE or attempt == EMBED_ATTEMPTS - 1:
+                if e.code == 429:
+                    raise LLMError("The free-tier embedding limit (100 passages per minute) is used up. "
+                                   "Wait a minute and try again.", 429) from e
+                raise _friendly(e) from e
+            if e.code == 429:
+                # Quota hit anyway (e.g. other requests on the same key): wait as long as the API asks.
+                delay = min(_retry_delay(e) or 30.0, 65.0) + 1
+        except Exception as e:  # timeouts, connection resets
+            log.warning("embedding request failed (attempt %d): %s", attempt + 1, type(e).__name__)
+            if attempt == EMBED_ATTEMPTS - 1:
+                raise LLMError("The AI service is responding too slowly right now. Please try again.", 503) from e
+        if on_wait and delay > 3:
+            on_wait(delay)
+        time.sleep(delay)
+    raise AssertionError("unreachable")
+
+
+def embed(texts: list[str], task: str, on_progress: Callable[[int], None] | None = None,
+          on_wait: Callable[[float], None] | None = None) -> np.ndarray:
     """Embed texts and return an L2-normalised float32 matrix (n, dim).
 
     task: "RETRIEVAL_DOCUMENT" for chunks, "RETRIEVAL_QUERY" for questions. Gemini embeds
     the two asymmetrically, which improves question -> passage matching.
+
+    Texts are sent in small batches, several at a time, so one slow request doesn't hold
+    up the whole document. `on_progress(n_done)` is called as batches finish, and
+    `on_wait(seconds)` when we pause for the rate limit.
     """
     s = get_settings()
-    client = get_client()
+    if not texts:
+        return np.zeros((0, s.embedding_dim), dtype=np.float32)
     config = types.EmbedContentConfig(task_type=task, output_dimensionality=s.embedding_dim)
-    vectors: list[list[float]] = []
-    for start in range(0, len(texts), EMBED_BATCH):
-        batch = texts[start:start + EMBED_BATCH]
-        for attempt in range(4):
-            try:
-                result = client.models.embed_content(model=s.embedding_model, contents=batch, config=config)
-                vectors.extend(e.values for e in result.embeddings)
-                break
-            except errors.APIError as e:
-                log.warning("embedding error (attempt %d): %s", attempt + 1, str(e)[:120])
-                if (e.code or 0) not in RETRYABLE or attempt == 3:
-                    raise _friendly(e) from e
-                time.sleep(1.5 * (2 ** attempt))
-            except Exception as e:
-                log.exception("embedding request failed")
-                if attempt == 3:
-                    raise LLMError("Could not reach the AI service to create embeddings.", 503) from e
-                time.sleep(1.5 * (2 ** attempt))
-    matrix = np.asarray(vectors, dtype=np.float32)
+    batches = [texts[i:i + EMBED_BATCH] for i in range(0, len(texts), EMBED_BATCH)]
+    results: list[list[list[float]] | None] = [None] * len(batches)
+    done = 0
+    with ThreadPoolExecutor(max_workers=min(EMBED_WORKERS, len(batches))) as pool:
+        futures = {pool.submit(_embed_batch, b, config, on_wait): i for i, b in enumerate(batches)}
+        try:
+            for fut in as_completed(futures):
+                i = futures[fut]
+                results[i] = fut.result()
+                done += len(batches[i])
+                if on_progress:
+                    on_progress(done)
+        except BaseException:
+            for f in futures:
+                f.cancel()
+            raise
+    matrix = np.asarray([v for batch in results for v in batch], dtype=np.float32)
     # Truncated (768-d) Gemini embeddings are not unit length, so normalise for cosine similarity.
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
     return matrix / np.clip(norms, 1e-12, None)

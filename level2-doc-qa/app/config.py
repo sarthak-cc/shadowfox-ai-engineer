@@ -23,10 +23,12 @@ class Settings:
         self.embedding_dim = int(os.getenv("EMBEDDING_DIM", "768"))
         self.request_timeout_s = float(os.getenv("REQUEST_TIMEOUT_S", "25"))
         self.max_retries = int(os.getenv("MAX_RETRIES", "1"))
+        # Gemini free tier: 100 embedded texts per minute. Keep a margin for question embeddings.
+        self.embed_per_minute = int(os.getenv("EMBED_PER_MINUTE", "90"))
 
         # Ingestion
-        self.chunk_size = int(os.getenv("CHUNK_SIZE", "900"))
-        self.chunk_overlap = int(os.getenv("CHUNK_OVERLAP", "150"))
+        self.chunk_size = int(os.getenv("CHUNK_SIZE", "1200"))
+        self.chunk_overlap = int(os.getenv("CHUNK_OVERLAP", "200"))
         self.max_file_mb = float(os.getenv("MAX_FILE_MB", "15"))
         self.max_documents = int(os.getenv("MAX_DOCUMENTS", "20"))
 
