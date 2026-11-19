@@ -6,7 +6,7 @@ Three AI applications of increasing depth, all built on the Google Gemini API.
 |---|---|---|---|
 | **Beginner** | [StudyPilot — AI study assistant](level1-student-utility/) | 4 prompt-engineered study tools, structured JSON output, validation, retries with model fallback, interactive quiz UI | ✅ Done |
 | **Intermediate** | [DocLens — document Q&A](level2-doc-qa/) | PDF/TXT/MD upload, sentence-aware chunking, Gemini embeddings, cosine search, relevance gate, cited answers with visible sources | ✅ Done |
-| **Advanced** | [Production-style RAG assistant](level3-rag-assistant/) | FastAPI + Pydantic, LangGraph pipeline, FAISS, reranking, groundedness checks, streaming, Docker | 🚧 In progress |
+| **Advanced** | [Groundwork — production-style RAG](level3-rag-assistant/) | FastAPI + Pydantic, LangGraph workflow, FAISS + BM25 hybrid search, local cross-encoder reranking, claim-level groundedness checks with revision, SSE streaming, Streamlit UI, Docker Compose | ✅ Done |
 
 Each level has its own README covering setup, architecture, prompt design and error handling.
 
