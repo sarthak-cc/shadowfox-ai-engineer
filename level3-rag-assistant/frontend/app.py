@@ -21,27 +21,35 @@ STEP_LABELS = {
 }
 
 # ------------------------------------------------------------------ styles
+LIGHT = """:root { --ink:#1b1a17; --ink2:#4a463f; --muted:#8a8478; --line:#e5ddcf; --line2:#d4c9b6; --paper:#f7f4ee;
+  --surface:#fffdf9; --side:#f3efe7; --input:#fffdf9; --chip:#efe9df; --chip2:#e8e2d6; --track:#ece6da;
+  --accent:#223fd1; --on-accent:#ffffff; --brand:#223fd1; --accent-soft:#e6eaff; --hl:#fff1b8;
+  --good:#137a4b; --good-soft:#def5e8; --warn:#a86a00; --warn-soft:#fff0cf; --bad:#c2341f; --bad-soft:#fde5df;
+  color-scheme: light; }"""
+DARK = """:root { --ink:#f3efe7; --ink2:#cdc6b8; --muted:#8f897c; --line:#2e2b26; --line2:#3d3932; --paper:#12110f;
+  --surface:#1a1916; --side:#161512; --input:#1f1d1a; --chip:#26241f; --chip2:#2e2b26; --track:#2e2b26;
+  --accent:#8fa2ff; --on-accent:#0d0f1f; --brand:#3d5afe; --accent-soft:#1f2442; --hl:#3a3214;
+  --good:#5fd39a; --good-soft:#13291e; --warn:#f0b84a; --warn-soft:#33270e; --bad:#ff8a76; --bad-soft:#35170f;
+  color-scheme: dark; }"""
+
 CSS = """
-:root { --ink:#1b1a17; --ink2:#4a463f; --muted:#8a8478; --line:#e5ddcf; --paper:#f7f4ee; --surface:#fffdf9;
-        --accent:#223fd1; --accent-soft:#e6eaff; --hl:#fff1b8; --good:#137a4b; --good-soft:#def5e8;
-        --warn:#a86a00; --warn-soft:#fff0cf; --bad:#c2341f; --bad-soft:#fde5df; }
 .stApp, .stApp button, .stApp input, .stApp textarea { font-family: "Inter", system-ui, sans-serif; }
 [data-testid="stIconMaterial"], .material-symbols-rounded { font-family: "Material Symbols Rounded" !important; }
 #MainMenu, footer, header [data-testid="stToolbar"] { visibility: hidden; }
 [data-testid="stAppViewContainer"] { background: var(--paper) radial-gradient(var(--line) 1px, transparent 1px) -11px -11px / 22px 22px; }
 .block-container { max-width: 980px; padding-top: 2.2rem; padding-bottom: 7rem; }
-[data-testid="stSidebar"] { background: #f3efe7; border-right: 1px solid var(--line); }
+[data-testid="stSidebar"] { background: var(--side); border-right: 1px solid var(--line); }
 [data-testid="stSidebar"] .block-container { padding-top: 1.4rem; }
 
-.brand { display:flex; align-items:center; gap:10px; margin: 0 0 .4rem; }
-.brand .mark { width:34px; height:34px; border-radius:9px; background:var(--accent); display:grid; place-items:center;
+.brand { display:flex; align-items:center; gap:10px; margin: 0; }
+.brand .mark { width:34px; height:34px; border-radius:9px; background:var(--brand); display:grid; place-items:center;
                color:#ffd23f; font-size:18px; font-weight:700; }
 .brand .name { font: 400 28px/1 "Instrument Serif", Georgia, serif; color:var(--ink); }
 .brand .name em { color: var(--accent); }
-.eyebrow { font: 500 11px/1 "JetBrains Mono", monospace; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); margin: 1rem 0 .5rem; }
+.stApp .eyebrow { font: 500 11px/1 "JetBrains Mono", monospace; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); margin: 1rem 0 .5rem; }
 .hero h1 { font: 400 clamp(38px,4.4vw,56px)/1.04 "Instrument Serif", Georgia, serif !important; letter-spacing:-.015em; margin:.3rem 0 .6rem; padding:0; color: var(--ink); }
 .hero h1 em { background: linear-gradient(transparent 62%, var(--hl) 62%); padding: 0 .06em; }
-.hero p { color: var(--ink2); font-size: 16.5px; max-width: 62ch; }
+.stApp .hero p { color: var(--ink2); font-size: 16.5px; max-width: 62ch; }
 .flow { display:flex; flex-wrap:wrap; gap:6px; margin: 1.1rem 0 1.6rem; }
 .flow span { font: 500 11.5px "JetBrains Mono", monospace; padding:6px 10px; border-radius:99px; background:var(--surface); border:1px solid var(--line); color:var(--ink2); }
 .flow i { color: var(--muted); font-style: normal; align-self:center; }
@@ -50,13 +58,13 @@ CSS = """
 .status-dot b { width:8px; height:8px; border-radius:50%; background:var(--good); box-shadow: 0 0 0 4px var(--good-soft); }
 .status-dot.err b { background: var(--bad); box-shadow: 0 0 0 4px var(--bad-soft); }
 
-.doc-meta { font-size: 12px; color: var(--muted); margin: -14px 0 8px 28px; }
+.stApp .doc-meta { font-size: 12px; color: var(--muted); margin: -14px 0 8px 28px; }
 .badge { font: 600 10px "JetBrains Mono", monospace; padding: 2px 6px; border-radius: 5px; margin-right: 4px; }
 .badge.pdf { background: var(--bad-soft); color: var(--bad); } .badge.md { background: var(--accent-soft); color: var(--accent); }
 .badge.txt { background: var(--good-soft); color: var(--good); }
 
 .pills { display:flex; flex-wrap:wrap; gap:6px; margin: 2px 0 10px; }
-.pill { display:inline-flex; align-items:center; gap:6px; font: 600 11px "JetBrains Mono", monospace; padding: 4px 9px; border-radius: 99px; background:#efe9df; color:var(--ink2); }
+.pill { display:inline-flex; align-items:center; gap:6px; font: 600 11px "JetBrains Mono", monospace; padding: 4px 9px; border-radius: 99px; background:var(--chip); color:var(--ink2); }
 .pill.high, .pill.answered { background: var(--good-soft); color: var(--good); }
 .pill.medium, .pill.revised, .pill.unverified { background: var(--warn-soft); color: var(--warn); }
 .pill.low, .pill.none, .pill.not_found { background: var(--bad-soft); color: var(--bad); }
@@ -67,25 +75,69 @@ CSS = """
 .src { border:1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 12px 14px; margin-bottom: 8px; }
 .src.uncited { opacity: .7; }
 .src-head { display:flex; align-items:center; gap:10px; font-size: 13.5px; margin-bottom: 6px; flex-wrap: wrap; }
-.src-n { display:grid; place-items:center; width:22px; height:22px; border-radius:7px; background:var(--accent); color:#fff; font: 600 11px "JetBrains Mono", monospace; flex:none; }
-.src.uncited .src-n { background:#e8e2d6; color: var(--ink2); }
-.src-head .where { color: var(--muted); }
-.src-scores { margin-left:auto; display:flex; gap:10px; font: 500 11px "JetBrains Mono", monospace; color: var(--ink2); }
-.bar { display:inline-block; width:46px; height:5px; border-radius:99px; background:#ece6da; vertical-align: middle; margin-right: 4px; overflow:hidden; }
+.src-n { display:grid; place-items:center; width:22px; height:22px; border-radius:7px; background:var(--accent); color:var(--on-accent); font: 600 11px "JetBrains Mono", monospace; flex:none; }
+.src.uncited .src-n { background:var(--chip2); color: var(--ink2); }
+.stApp .src-head .where { color: var(--muted); }
+.stApp .src-scores { margin-left:auto; display:flex; gap:10px; font: 500 11px "JetBrains Mono", monospace; color: var(--ink2); }
+.bar { display:inline-block; width:46px; height:5px; border-radius:99px; background:var(--track); vertical-align: middle; margin-right: 4px; overflow:hidden; }
 .bar i { display:block; height:100%; background: var(--good); }
-.src-text { font-size: 13.8px; line-height: 1.55; color: var(--ink2); margin: 0; }
-.claim { display:flex; gap:8px; font-size: 14px; margin: 4px 0; }
+.stApp .src-text { font-size: 13.8px; line-height: 1.55; color: var(--ink2); margin: 0; }
+.stApp .claim { display:flex; gap:8px; font-size: 14px; margin: 4px 0; }
 .claim .ok { color: var(--good); } .claim .no { color: var(--bad); }
-.trace-q { font-size: 13px; color: var(--ink2); margin-bottom: 6px; }
+.stApp .trace-q { font-size: 13px; color: var(--ink2); margin-bottom: 6px; }
 .trace-q code { font-size: 12px; }
 [data-testid="stChatMessage"] { background: transparent; }
 [data-testid="stSidebar"] [data-testid="stColumn"]:nth-child(2) button { padding: 0 !important; min-width: 32px; min-height: 32px; border-color: transparent; background: transparent; color: var(--muted); }
 [data-testid="stSidebar"] [data-testid="stColumn"]:nth-child(2) button:hover { color: var(--bad); background: var(--bad-soft); }
 [data-testid="stSidebar"] [data-testid="stColumn"]:nth-child(2) .stMarkdownEllipsis { overflow: visible; }
+/* ---- Streamlit widgets follow the same palette (needed for dark mode) ---- */
+.stApp { background: var(--paper); color: var(--ink); }
+[data-testid="stMarkdownContainer"], [data-testid="stMarkdownContainer"] :where(div, b, strong, em) { color: var(--ink); }
+[data-testid="stHeader"] { background: transparent; }
+.stApp :where(p, li, h1, h2, h3, h4, h5, label, summary, small, td, th) { color: var(--ink); }
+[data-testid="stWidgetLabel"] p, [data-testid="stCaptionContainer"], .stApp [data-testid="stMarkdownContainer"] small { color: var(--ink2); }
+.stApp code { background: var(--chip); color: var(--ink); }
+[data-testid="stBottom"] > div, [data-testid="stBottomBlockContainer"] { background: var(--paper); }
+[data-testid="stChatInput"], [data-testid="stChatInput"] > div, [data-testid="stChatInput"] div:has(> textarea) { background: var(--input) !important; border-color: var(--line2) !important; }
+[data-testid="stChatInputSubmitButton"] { background: var(--accent); color: var(--on-accent); }
+[data-testid="stChatInputSubmitButton"]:disabled { background: var(--chip); color: var(--muted); }
+[data-testid="stChatInput"] textarea { color: var(--ink); background: var(--input); }
+[data-testid="stChatInput"] textarea::placeholder { color: var(--muted); opacity: 1; }
+[data-testid="stChatInput"] textarea:disabled { -webkit-text-fill-color: var(--muted); cursor: not-allowed; }
+.empty-card { padding: 16px 18px; border-radius: 12px; background: var(--accent-soft); border: 1px solid var(--line); color: var(--ink); font-size: 15px; }
+.empty-card b { color: var(--ink); }
+.st-key-theme_btn button { width: 38px; height: 38px; min-height: 38px; padding: 0 !important; border-radius: 50% !important; background: var(--surface) !important; border: 1px solid var(--line2) !important; color: var(--ink) !important; }
+.st-key-theme_btn button:hover { border-color: var(--accent) !important; color: var(--accent) !important; }
+.st-key-theme_btn button * { color: inherit !important; }
+.st-key-theme_btn .stMarkdownEllipsis { overflow: visible; }
+[data-testid="stFileUploaderDropzone"] { background: var(--surface); border: 1px dashed var(--line2); }
+[data-testid="stFileUploaderDropzone"] * { color: var(--ink2); }
+[data-testid="stBaseButton-secondary"] { background: var(--surface); color: var(--ink); border-color: var(--line2); }
+[data-testid="stBaseButton-secondary"]:hover { border-color: var(--accent); color: var(--accent); }
+[data-testid="stBaseButton-primary"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 [data-testid="stExpander"] details { background: var(--surface); border-color: var(--line); border-radius: 12px; }
+[data-testid="stExpander"] summary { background: transparent !important; color: var(--ink) !important; }
+[data-testid="stExpander"] summary:hover, [data-testid="stExpander"] summary:focus-visible { background: var(--chip) !important; }
+[data-testid="stExpander"] summary:hover * { color: var(--accent); }
+[data-testid="stExpander"] summary svg, [data-testid="stExpander"] [data-testid="stIconMaterial"] { color: var(--ink2); }
+[data-testid^="stChatMessageAvatar"] { background: var(--surface) !important; border: 1px solid var(--line); }
+[data-testid^="stChatMessageAvatar"] * { color: var(--accent) !important; }
+[data-testid="stAlertContainer"] { background: var(--chip) !important; border: 1px solid var(--line); }
+[data-testid="stAlert"] * { color: var(--ink) !important; }
+[data-baseweb="tooltip"], [data-baseweb="tooltip"] > div, [data-testid="stTooltipContent"] { background: var(--chip2) !important; color: var(--ink) !important; }
+[data-baseweb="tooltip"] * { color: var(--ink) !important; }
+[data-testid="stSidebar"] hr { border-color: var(--line); }
+.trace { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+.trace th { text-align: left; font: 500 10.5px "JetBrains Mono", monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.trace td { padding: 7px 8px; border-bottom: 1px solid var(--line); color: var(--ink2); vertical-align: top; }
+.trace td:first-child { font: 600 12px "JetBrains Mono", monospace; color: var(--ink); white-space: nowrap; }
+.trace td.ms { text-align: right; font: 500 12px "JetBrains Mono", monospace; white-space: nowrap; }
+.trace .msbar { display:inline-block; height:4px; border-radius:2px; background: var(--accent); vertical-align: middle; margin-right: 6px; opacity: .7; }
 """
 # One line, no blank lines: Streamlit's Markdown parser can't split the block and print CSS as text.
-st.markdown('<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet"><style>' + " ".join(CSS.split()) + "</style>", unsafe_allow_html=True)
+# The dark-mode toggle (sidebar) stores its value in session_state; read it before drawing anything.
+_palette = DARK if st.session_state.get("dark", False) else LIGHT
+st.markdown('<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet"><style>' + " ".join((_palette + CSS).split()) + "</style>", unsafe_allow_html=True)
 
 
 # ------------------------------------------------------------------ helpers
@@ -123,9 +175,17 @@ ss.setdefault("pending_question", None)
 
 
 # ------------------------------------------------------------------ sidebar
+def _toggle_theme() -> None:
+    st.session_state["dark"] = not st.session_state.get("dark", False)
+
+
 with st.sidebar:
-    st.markdown('<div class="brand"><div class="mark">◆</div><div class="name">Ground<em>work</em></div></div>',
+    b1, b2 = st.columns([0.8, 0.2], vertical_alignment="center")
+    b1.markdown('<div class="brand"><div class="mark">◆</div><div class="name">Ground<em>work</em></div></div>',
                 unsafe_allow_html=True)
+    dark = st.session_state.get("dark", False)
+    b2.button(":material/light_mode:" if dark else ":material/dark_mode:", key="theme_btn", on_click=_toggle_theme,
+              help="Switch to light mode" if dark else "Switch to dark mode")
     h = get_health()
     if "error" in h:
         st.markdown(f'<span class="status-dot err"><b></b>Backend offline</span>', unsafe_allow_html=True)
@@ -254,8 +314,12 @@ def render_details(r: dict) -> None:
             qs = " · ".join(f"<code>{esc(q)}</code>" for q in r["search_queries"])
             st.markdown(f'<div class="trace-q"><b>Searched as:</b> {esc(r["standalone_question"])}<br>'
                         f'<b>Queries:</b> {qs}</div>', unsafe_allow_html=True)
-            st.dataframe([{"step": t["node"], "ms": t["ms"], "detail": t["detail"]} for t in r["trace"]],
-                         hide_index=True, use_container_width=True)
+            longest = max([t["ms"] for t in r["trace"]] + [1])
+            rows = "".join(
+                f'<tr><td>{esc(t["node"])}</td><td class="ms"><span class="msbar" style="width:{max(2, int(60 * t["ms"] / longest))}px"></span>'
+                f'{t["ms"]:,} ms</td><td>{esc(t["detail"])}</td></tr>' for t in r["trace"])
+            st.markdown(f'<table class="trace"><tr><th>Step</th><th>Time</th><th>Detail</th></tr>{rows}</table>',
+                        unsafe_allow_html=True)
 
 
 def render_assistant(r: dict) -> None:
@@ -283,7 +347,8 @@ passages it cites, and you can open each source to see exactly where it came fro
                 ss.pending_question = q
                 st.rerun()
     else:
-        st.info("Add PDF, TXT or Markdown files in the sidebar — or load the sample documents — to get started.")
+        st.markdown('<div class="empty-card"><b>Your library is empty.</b> Add PDF, TXT or Markdown files in the '
+                    'sidebar, or click <b>Load sample documents</b>, to get started.</div>', unsafe_allow_html=True)
 
 for m in ss.messages:
     with st.chat_message(m["role"], avatar=":material/person:" if m["role"] == "user" else ":material/auto_awesome:"):
@@ -294,7 +359,8 @@ for m in ss.messages:
         else:
             render_assistant(m["response"])
 
-question = st.chat_input("Ask a question about your documents…", disabled=not docs)
+question = st.chat_input("Ask a question about your documents…" if docs else "Add documents in the sidebar to start asking…",
+                         disabled=not docs)
 if ss.pending_question:
     question, ss.pending_question = ss.pending_question, None
 

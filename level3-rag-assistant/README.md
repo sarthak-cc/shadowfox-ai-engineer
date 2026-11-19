@@ -10,13 +10,14 @@ Grounded question answering over PDF, TXT and Markdown files. A **FastAPI** back
 5. Stream a cited answer.
 6. Check each claim against the sources, and revise if needed.
 
-A **Streamlit** UI shows every step, and the whole system runs with **Docker Compose**.
+A **Streamlit** UI shows every step, with light and dark themes (the moon button next to the logo), and
+the whole system runs with **Docker Compose**.
 
 ![Answer with sources](docs/answer.png)
 
-| Follow-up resolved from history, claim check and pipeline trace | Home |
+| Follow-up resolved from history, claim check and pipeline trace | Dark mode |
 |---|---|
-| ![Follow-up](docs/followup.png) | ![Home](docs/home.png) |
+| ![Follow-up](docs/followup.png) | ![Dark mode](docs/dark.png) |
 
 ---
 
@@ -31,6 +32,10 @@ docker compose up --build
 ```
 
 UI: http://localhost:8501 · API docs: http://localhost:8000/docs
+
+The frontend container starts only after the backend's health check passes. The library is stored in the
+`rag-data` volume, so documents survive `docker compose restart` and `down`/`up` (tested: 3 documents and
+102 chunks were still there after a restart).
 
 ### Without Docker
 
