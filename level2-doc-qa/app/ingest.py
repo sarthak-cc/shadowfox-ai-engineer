@@ -68,7 +68,9 @@ def _extract_pdf(data: bytes) -> list[Page]:
                 reader.decrypt("")
             except Exception as e:
                 raise IngestError("This PDF is password-protected.") from e
-        pages = [Page(i + 1, clean(p.extract_text() or "")) for i, p in enumerate(reader.pages)]
+        raw = [p.extract_text() or "" for p in reader.pages]
+        raw = strip_repeated_lines(raw)
+        pages = [Page(i + 1, clean(t)) for i, t in enumerate(raw)]
     except IngestError:
         raise
     except (PdfReadError, Exception) as e:
@@ -101,6 +103,38 @@ def _extract_text(data: bytes, kind: str) -> list[Page]:
 
 
 # ---------------- cleaning ----------------
+
+def _line_key(line: str) -> str:
+    """Normalise a line so "Page 3" and "Page 17" compare equal."""
+    return re.sub(r"\d+", "#", " ".join(line.split())).lower()
+
+
+def strip_repeated_lines(pages: list[str], edge: int = 3, min_share: float = 0.6) -> list[str]:
+    """Remove running headers/footers: lines near the top or bottom of a page that repeat on
+    most pages (e.g. "Course name | Unit notes" and "Page 7").
+
+    They carry no meaning, but would otherwise be embedded into every chunk - adding noise to
+    similarity scores and inflating the number of chunks (and embedding requests).
+    """
+    if len(pages) < 3:
+        return pages
+    split = [p.splitlines() for p in pages]
+    counts: dict[str, int] = {}
+    for lines in split:
+        edges = {_line_key(l) for l in lines[:edge] + lines[-edge:] if l.strip()}
+        for key in edges:
+            counts[key] = counts.get(key, 0) + 1
+    repeated = {k for k, n in counts.items() if n >= max(3, min_share * len(pages)) and len(k) < 200}
+    if not repeated:
+        return pages
+    out = []
+    for lines in split:
+        keep = [l for i, l in enumerate(lines)
+                if not ((i < edge or i >= len(lines) - edge) and _line_key(l) in repeated)]
+        # never empty a page: if everything matched, the "header" was really the content
+        out.append("\n".join(keep) if any(l.strip() for l in keep) else "\n".join(lines))
+    return out
+
 
 def strip_markdown(text: str) -> str:
     text = re.sub(r"```.*?```", lambda m: m.group(0).strip("`"), text, flags=re.S)  # keep code content

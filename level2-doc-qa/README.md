@@ -28,7 +28,7 @@ samples are an operating-systems lecture PDF and a course handbook in Markdown. 
 are at http://localhost:8002/docs.
 
 ```bash
-pytest -q        # 16 tests; Gemini is mocked, so no key or network is needed
+pytest -q        # 19 tests; Gemini is mocked, so no key or network is needed
 ```
 
 ---
@@ -83,6 +83,9 @@ pytest -q        # 16 tests; Gemini is mocked, so no key or network is needed
 - **Markdown**: headings, links, emphasis and image syntax are stripped so only the readable text is embedded.
 - **Cleaning**: lines wrapped mid-sentence (common in PDFs) are joined back up, words hyphenated across
   lines are repaired, and extra whitespace is removed.
+- **Running headers and footers** (e.g. "Course name | Question bank" and "Page 7" on every page) are
+  detected as lines near the top or bottom that repeat on most pages, ignoring digits, and removed. They
+  would otherwise be embedded into every chunk and add noise to every similarity score.
 
 ### Chunk size: ~1,200 characters with ~200 characters of overlap
 - Text is split into **sentences**, which are packed into chunks of at most `CHUNK_SIZE` characters. A
@@ -113,6 +116,16 @@ pytest -q        # 16 tests; Gemini is mocked, so no key or network is needed
   information.
 - The SDK's built-in retry layer is switched off, so a stalled request fails after one timeout and is
   retried by the app's own logic instead of silently retrying for minutes.
+- **Questions don't wait behind uploads**: the embedding for a question may use a few reserved slots above
+  the normal per-minute budget, so asking still works while a large file is being indexed.
+
+### Answer speed: hedged requests
+Free-tier models are sometimes overloaded for minutes at a time (503 errors, or 20–40 s responses). The
+app sends the question to the primary model, and if no answer has arrived within `HEDGE_AFTER_S` (6 s), or
+the model fails, it **also** asks the next model and uses whichever valid answer comes back first. A stuck
+model therefore costs a few seconds instead of a full timeout. On a congested day this took typical answer
+generation from 10–40 s down to 2–3 s. The model order was chosen by benchmarking the same grounded
+prompt on each available model.
 
 ### Embeddings and search
 - **Model**: `gemini-embedding-001`, reduced to **768 dimensions** (a quarter of the full size, with
@@ -152,7 +165,7 @@ documents don't cover it, instead of supplying the answer from general knowledge
 | Unsupported type, empty file, > 15 MB, corrupted or password-protected PDF, scanned PDF | `422`/`413` with a specific message, shown on the upload card |
 | Same file uploaded twice | `409`: "already indexed as …" (SHA-256 of the content) |
 | Empty or nonsense question, no documents, no documents selected | Caught in the UI and again by the API |
-| Gemini 503/429/timeout | Retry with backoff, then fall back to other models |
+| Gemini 503/429/timeout or a slow model | Hedged request to the next model; first valid answer wins |
 | Free-tier embedding quota (100 texts/min) | Rate limiter paces requests; on 429 waits the time the API asks, shown on the upload card |
 | Slow or stalled embedding request | 25 s timeout, retried by the app; other batches continue in parallel |
 | Server unreachable | Error card with **Try again** |
@@ -162,7 +175,8 @@ documents don't cover it, instead of supplying the answer from general knowledge
 | Variable | Default | Meaning |
 |---|---|---|
 | `GEMINI_API_KEY` | — | Required |
-| `GEMINI_MODEL` / `GEMINI_FALLBACK_MODELS` | `gemini-3.5-flash-lite` / `gemini-3.1-flash-lite,gemini-3.5-flash` | Answer generation |
+| `GEMINI_MODEL` / `GEMINI_FALLBACK_MODELS` | `gemini-3.1-flash-lite` / `gemini-3.5-flash-lite,gemini-3.5-flash` | Answer generation, in order of preference |
+| `HEDGE_AFTER_S` | `6` | Seconds before a backup model is also asked |
 | `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `gemini-embedding-001` / `768` | Embeddings |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | `1200` / `200` | Characters per chunk / overlap |
 | `EMBED_PER_MINUTE` | `90` | Embedding rate limit (free tier allows 100) |

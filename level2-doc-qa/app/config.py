@@ -17,12 +17,13 @@ def _list(name: str, default: str) -> list[str]:
 class Settings:
     def __init__(self) -> None:
         self.gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
-        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip()
-        self.fallback_models = _list("GEMINI_FALLBACK_MODELS", "gemini-3.1-flash-lite,gemini-3.5-flash")
+        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite").strip()
+        self.fallback_models = _list("GEMINI_FALLBACK_MODELS", "gemini-3.5-flash-lite,gemini-3.5-flash")
         self.embedding_model = os.getenv("EMBEDDING_MODEL", "gemini-embedding-001").strip()
         self.embedding_dim = int(os.getenv("EMBEDDING_DIM", "768"))
         self.request_timeout_s = float(os.getenv("REQUEST_TIMEOUT_S", "25"))
-        self.max_retries = int(os.getenv("MAX_RETRIES", "1"))
+        # Start a backup model if the current one hasn't answered within this many seconds.
+        self.hedge_after_s = float(os.getenv("HEDGE_AFTER_S", "6"))
         # Gemini free tier: 100 embedded texts per minute. Keep a margin for question embeddings.
         self.embed_per_minute = int(os.getenv("EMBED_PER_MINUTE", "90"))
 

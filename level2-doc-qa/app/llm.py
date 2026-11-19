@@ -4,7 +4,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
 from typing import TypeVar
 
 import numpy as np
@@ -36,22 +36,25 @@ class RateLimiter:
         self.events: deque[tuple[float, int]] = deque()
         self.lock = threading.Lock()
 
-    def acquire(self, n: int, on_wait: Callable[[float], None] | None = None) -> None:
-        n = min(n, self.per_minute)
+    def acquire(self, n: int, on_wait: Callable[[float], None] | None = None, reserve: int = 0) -> None:
+        """Block until `n` texts fit in the window. `reserve` lets urgent calls (a user's question)
+        use a few extra slots above the normal limit, so they don't queue behind a big upload."""
+        limit = self.per_minute + reserve
+        n = min(n, limit)
         while True:
             with self.lock:
                 now = time.monotonic()
                 while self.events and now - self.events[0][0] >= 60:
                     self.events.popleft()
                 used = sum(k for _, k in self.events)
-                if used + n <= self.per_minute:
+                if used + n <= limit:
                     self.events.append((now, n))
                     return
                 # wait until enough of the oldest usage expires
                 freed, wait = 0, 0.0
                 for ts, k in self.events:
                     freed += k
-                    if used - freed + n <= self.per_minute:
+                    if used - freed + n <= limit:
                         wait = 60 - (now - ts) + 0.2
                         break
             if on_wait:
@@ -125,7 +128,8 @@ def _embed_batch(batch: list[str], config: types.EmbedContentConfig,
     s = get_settings()
     client = get_client()
     for attempt in range(EMBED_ATTEMPTS):
-        _get_limiter().acquire(len(batch), on_wait)
+        reserve = 8 if config.task_type == "RETRIEVAL_QUERY" else 0
+        _get_limiter().acquire(len(batch), on_wait, reserve)
         delay = 1.0 * (2 ** attempt)
         try:
             started = time.perf_counter()
@@ -200,33 +204,69 @@ def generate_structured(prompt: str, schema: type[T], system: str, temperature: 
         response_mime_type="application/json",
         response_schema=schema,
     )
-    plan = [s.gemini_model] * (s.max_retries + 1) + s.fallback_models
-    last_error: LLMError | None = None
-    for attempt, model in enumerate(plan):
+
+    def call(model: str) -> T:
+        started = time.perf_counter()
         try:
-            started = time.perf_counter()
             response = client.models.generate_content(model=model, contents=prompt, config=config)
-            log.info("model=%s attempt=%d latency=%.2fs", model, attempt + 1, time.perf_counter() - started)
-            if not response.text:
-                raise LLMError("The AI returned no content (it may have been filtered). Try rephrasing.", 422)
-            return schema.model_validate_json(response.text)
         except errors.APIError as e:
-            log.warning("generation error model=%s attempt=%d: %s", model, attempt + 1, str(e)[:120])
-            last_error = _friendly(e)
-            retryable = (e.code or 0) in RETRYABLE | {404}
-        except ValidationError:
-            log.warning("malformed model output (attempt %d)", attempt + 1)
-            last_error = LLMError("The AI returned an unexpected format. Please try again.", 502)
-            retryable = True
-        except LLMError:
-            raise
-        except Exception:
-            log.exception("unexpected generation error")
-            last_error = LLMError("Could not reach the AI service. Check your connection and try again.", 503)
-            retryable = True
-        if not retryable or attempt == len(plan) - 1:
-            break
-        if plan[attempt + 1] == model:
-            time.sleep(1.0 * (2 ** attempt))
+            log.warning("generation error model=%s: %s", model, str(e)[:120])
+            raise _Attempt(_friendly(e), retryable=(e.code or 0) in RETRYABLE | {404}) from e
+        except Exception as e:  # timeout / connection
+            log.warning("generation failed model=%s: %s", model, type(e).__name__)
+            raise _Attempt(LLMError("The AI service is responding too slowly right now. Please try again.", 503),
+                           retryable=True) from e
+        log.info("model=%s latency=%.2fs", model, time.perf_counter() - started)
+        if not response.text:
+            raise _Attempt(LLMError("The AI returned no content (it may have been filtered). Try rephrasing.", 422),
+                           retryable=False)
+        try:
+            return schema.model_validate_json(response.text)
+        except ValidationError as e:
+            raise _Attempt(LLMError("The AI returned an unexpected format. Please try again.", 502),
+                           retryable=True) from e
+
+    # Hedged requests: start with the primary model; if it hasn't answered within HEDGE_AFTER_S
+    # (or it fails), also start the next model, and use whichever valid answer arrives first.
+    # Free-tier models are sometimes overloaded for minutes - this bounds the cost of a stuck
+    # model to a few seconds instead of a full timeout.
+    plan = list(dict.fromkeys([s.gemini_model, *s.fallback_models]))
+    pending: set[Future] = set()
+    last_error: LLMError | None = None
+    next_model = 0
+
+    def launch() -> None:
+        nonlocal next_model
+        pending.add(_POOL.submit(call, plan[next_model]))
+        next_model += 1
+
+    launch()
+    while pending:
+        done, _ = wait(pending, timeout=s.hedge_after_s, return_when=FIRST_COMPLETED)
+        if not done:                                   # primary is slow: hedge with the next model
+            if next_model < len(plan):
+                log.info("no answer after %.0fs - also asking %s", s.hedge_after_s, plan[next_model])
+                launch()
+            continue
+        for fut in done:
+            pending.discard(fut)
+            try:
+                return fut.result()
+            except _Attempt as a:
+                last_error = a.error
+                if not a.retryable:
+                    raise a.error from None
+        if next_model < len(plan):                     # a model failed: try the next one now
+            launch()
     assert last_error is not None
     raise last_error
+
+
+class _Attempt(Exception):
+    def __init__(self, error: LLMError, retryable: bool) -> None:
+        super().__init__(error.message)
+        self.error = error
+        self.retryable = retryable
+
+
+_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="gen")

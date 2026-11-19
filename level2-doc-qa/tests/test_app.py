@@ -214,3 +214,45 @@ def test_retry_delay_is_read_from_api_error():
                                           "details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo",
                                                        "retryDelay": "55s"}]}})
     assert llm._retry_delay(err) == 55.0
+
+
+def test_repeated_headers_and_page_numbers_are_removed():
+    topics = ["Processes and threads", "Memory paging", "File systems", "Deadlocks", "Scheduling"]
+    pages = [f"Course X | Unit notes\nPage {i}\n{t} are explained here.\nMore on {t.lower()}.\nFooter text"
+             for i, t in enumerate(topics, start=1)]
+    out = ingest.strip_repeated_lines(pages)
+    assert all("Course X" not in p and "Page" not in p and "Footer" not in p for p in out)
+    assert "Memory paging are explained here." in out[1]
+    # a page is never emptied, even if every line looks repeated
+    same = ["Header\nPage 1", "Header\nPage 2", "Header\nPage 3"]
+    assert all(p.strip() for p in ingest.strip_repeated_lines(same))
+
+
+def test_slow_primary_model_is_hedged(monkeypatch):
+    from types import SimpleNamespace
+    from app import llm
+
+    class FakeModels:
+        def generate_content(self, model, contents, config):
+            if model == "slow-model":
+                time.sleep(1.0)
+                return SimpleNamespace(text='{"found": true, "answer": "slow", "cited": [], "confidence": "low"}')
+            return SimpleNamespace(text='{"found": true, "answer": "fast [1]", "cited": [1], "confidence": "high"}')
+
+    monkeypatch.setattr(llm, "get_client", lambda: SimpleNamespace(models=FakeModels()))
+    s = llm.get_settings()
+    monkeypatch.setattr(s, "gemini_model", "slow-model")
+    monkeypatch.setattr(s, "fallback_models", ["fast-model"])
+    monkeypatch.setattr(s, "hedge_after_s", 0.1)
+    started = time.perf_counter()
+    result = llm.generate_structured("q", GroundedAnswer, "sys")
+    assert result.answer == "fast [1]" and time.perf_counter() - started < 0.8
+
+
+def test_questions_get_reserved_quota(monkeypatch):
+    from app import llm
+    monkeypatch.setattr(llm.time, "monotonic", lambda: 0.0)
+    monkeypatch.setattr(llm.time, "sleep", lambda s: (_ for _ in ()).throw(AssertionError("should not wait")))
+    rl = llm.RateLimiter(per_minute=90)
+    rl.acquire(90)                 # an upload used the whole normal budget
+    rl.acquire(1, reserve=8)       # a question still goes through immediately
